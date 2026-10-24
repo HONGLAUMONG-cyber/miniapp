@@ -83,12 +83,128 @@
             border: 1px solid #232A3B;
             background: radial-gradient(circle at center, #182030 0%, #0a0d14 100%);
         }
+
+        /* Win Notification Ticker */
+        .win-ticker {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 36px;
+            background: linear-gradient(90deg, #8A2BE2 0%, #0ECB81 100%);
+            overflow: hidden;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        .win-ticker-content {
+            display: flex;
+            animation: scroll-left 20s linear infinite;
+            white-space: nowrap;
+            gap: 60px;
+        }
+        @keyframes scroll-left {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+        .win-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        }
+
+        /* Countdown Timer */
+        .countdown-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: conic-gradient(#F3BA2F var(--progress), #232A3B var(--progress));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .countdown-inner {
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            background: #151A24;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Fake Betting Animation */
+        .fake-bet {
+            position: absolute;
+            font-size: 14px;
+            font-weight: 700;
+            color: #F3BA2F;
+            text-shadow: 0 0 8px rgba(243, 186, 47, 0.8);
+            animation: jump-bet 0.8s ease-out;
+            pointer-events: none;
+        }
+        @keyframes jump-bet {
+            0% { transform: translateY(0) scale(0.8); opacity: 0; }
+            50% { transform: translateY(-20px) scale(1.2); opacity: 1; }
+            100% { transform: translateY(-40px) scale(0.8); opacity: 0; }
+        }
+
+        /* Royal Casino Table */
+        .royal-table {
+            background: radial-gradient(circle at 50% 45%, #163828 0%, #091c14 70%, #050c09 100%);
+            border: 2px solid #b38728;
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.85), 0 10px 30px rgba(0,0,0,0.6);
+        }
+
+        /* Dice Display */
+        .ceramic-plate {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, #ffffff 0%, #e6eef8 60%, #b8c7dc 90%, #8fa3bf 100%);
+            box-shadow: 0 14px 28px rgba(0,0,0,0.75), inset 0 0 0 8px #d4af37;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .dice-3d {
+            font-size: 42px;
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.6));
+        }
+
+        /* History Pills */
+        .history-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 60px;
+            height: 32px;
+            padding: 0 10px;
+            border-radius: 16px;
+            font-size: 11px;
+            font-weight: 700;
+            border: 1px solid;
+        }
+        .history-tai { background: #F6465D; border-color: #ff6b7f; color: #fff; }
+        .history-xiu { background: #0ECB81; border-color: #2ef1a8; color: #fff; }
     </style>
 </head>
 <body class="min-h-screen">
+    <!-- Win Notification Ticker -->
+    <div class="win-ticker">
+        <div class="win-ticker-content" id="winTicker">
+            <!-- Dynamically filled with fake win notifications -->
+        </div>
+    </div>
 
     <!-- Top Bar Header -->
-    <header class="sticky top-0 z-40 glass-panel border-b border-cyberBorder px-4 py-3">
+    <header class="sticky top-0 z-40 glass-panel border-b border-cyberBorder px-4 py-3" style="margin-top: 36px;">
         <div class="flex items-center justify-between">
             <div class="flex items-center space-x-3">
                 <div class="relative">
@@ -652,6 +768,15 @@
         let currentBet = 10000;
         let selectedDoors = []; // Cho bầu cua hoặc chẵn/lẻ/tài/xỉu
 
+        // Professional Casino Session Variables
+        let currentSession = null;
+        let sessionPollInterval = null;
+        let sessionBets = {}; // Track bets placed in current session
+        let fakeBetInterval = null;
+
+        // Chip selector
+        const CHIPS = [1000, 5000, 10000, 50000, 100000, 500000];
+
         function initThreeJS() {
             const container = document.getElementById('threejs-container');
             const width = container.clientWidth || 360;
@@ -853,6 +978,7 @@
         function switchGame(gameType) {
             currentGame = gameType;
             selectedDoors = [];
+            sessionBets = {};
             triggerHaptic('light');
 
             document.querySelectorAll('.game-btn').forEach(btn => {
@@ -864,6 +990,13 @@
 
             loadGame3DAssets(gameType);
             renderBetControls();
+
+            // Start session polling for Tài Xỉu and Bầu Cua
+            if (gameType === 'dice' || gameType === 'baucua') {
+                startSessionPolling();
+            } else {
+                stopSessionPolling();
+            }
         }
 
         function renderBetControls() {
@@ -871,51 +1004,174 @@
             const playBtn = document.getElementById('btnPlayGame');
 
             if (currentGame === 'dice') {
-                playBtn.innerText = "🎲 LẮC XÚC XẮC 3D";
+                // Session-based Tài Xỉu with professional casino UI
+                playBtn.innerText = "🎲 ĐẶT CƯỢC TÀI XỈU";
+                playBtn.onclick = null; // Disable default play, use individual door betting
+
                 container.innerHTML = `
-                    <div class="grid grid-cols-2 gap-2 text-xs">
-                        <button onclick="selectDoor('chan')" id="door-chan" class="door-btn py-2.5 rounded-xl font-bold bg-[#151A24] border border-cyberBorder text-white flex items-center justify-center gap-2">
-                            <span class="w-3 h-3 rounded-full bg-cyberRed inline-block"></span> CHẴN (x1.95)
-                        </button>
-                        <button onclick="selectDoor('le')" id="door-le" class="door-btn py-2.5 rounded-xl font-bold bg-[#151A24] border border-cyberBorder text-white flex items-center justify-center gap-2">
-                            <span class="w-3 h-3 rounded-full bg-cyan-400 inline-block"></span> LẺ (x1.95)
-                        </button>
-                        <button onclick="selectDoor('tai')" id="door-tai" class="door-btn py-2.5 rounded-xl font-bold bg-[#151A24] border border-cyberBorder text-white flex items-center justify-center gap-2">
-                            📈 TÀI [4-6] (x1.95)
-                        </button>
-                        <button onclick="selectDoor('xiu')" id="door-xiu" class="door-btn py-2.5 rounded-xl font-bold bg-[#151A24] border border-cyberBorder text-white flex items-center justify-center gap-2">
-                            📉 XỈU [1-3] (x1.95)
-                        </button>
+                    <!-- Session Info & Timer -->
+                    <div class="bg-gradient-to-r from-purple-900/40 to-amber-900/40 rounded-xl p-3 mb-3 border border-cyberGold/30">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-xs text-gray-400">Phiên: <span id="sessionNumber">#0</span></div>
+                                <div class="text-sm font-bold text-cyberGold">TÀI XỈU CHẴN LẺ</div>
+                            </div>
+                            <div id="sessionTimer">
+                                <div class="countdown-circle" style="--progress: 0%">
+                                    <div class="countdown-inner">
+                                        <div class="text-xs text-gray-400">...</div>
+                                        <div class="text-2xl font-bold font-orbitron text-cyberGold">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="diceResultText" class="text-center text-sm font-bold text-cyberGreen mt-2" style="display:none;"></div>
                     </div>
+
+                    <!-- Betting Doors -->
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div class="relative">
+                            <button onclick="placeSessionBet('tai')" id="door-tai" class="w-full py-4 rounded-xl font-bold text-white btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #F6465D 0%, #ff6b7f 100%);">
+                                <div class="text-lg">📈 TÀI (11-17)</div>
+                                ${sessionBets['tai'] ? `<div class="text-xs mt-1">${sessionBets['tai'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_tai" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('xiu')" id="door-xiu" class="w-full py-4 rounded-xl font-bold text-white btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #0ECB81 0%, #2ef1a8 100%);">
+                                <div class="text-lg">📉 XỈU (4-10)</div>
+                                ${sessionBets['xiu'] ? `<div class="text-xs mt-1">${sessionBets['xiu'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_xiu" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('chan')" id="door-chan" class="w-full py-4 rounded-xl font-bold text-white btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #8A2BE2 0%, #a855f7 100%);">
+                                <div class="text-lg"><span class="w-3 h-3 rounded-full bg-white inline-block mr-1"></span> CHẴN</div>
+                                ${sessionBets['chan'] ? `<div class="text-xs mt-1">${sessionBets['chan'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_chan" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('le')" id="door-le" class="w-full py-4 rounded-xl font-bold text-white btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #F3BA2F 0%, #ffd24d 100%);">
+                                <div class="text-lg"><span class="w-3 h-3 rounded-full bg-white inline-block mr-1"></span> LẺ</div>
+                                ${sessionBets['le'] ? `<div class="text-xs mt-1">${sessionBets['le'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_le" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                    </div>
+
+                    <!-- Chip Selector -->
+                    <div class="mb-3">
+                        <div class="text-xs text-gray-400 mb-2">Chọn mức phỉnh:</div>
+                        <div class="flex gap-2 overflow-x-auto hide-scrollbar">
+                            ${CHIPS.map(chip => `
+                                <button onclick="selectChip(${chip})"
+                                    class="chip-btn px-4 py-2 rounded-lg font-bold whitespace-nowrap btn-touch ${currentBet === chip ? 'bg-cyberGold text-black' : 'bg-cyberCard text-gray-300 border border-cyberBorder'}">
+                                    ${(chip / 1000).toLocaleString('vi-VN')}K
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Cầu Kèo Button -->
+                    <button onclick="showCauKeo()" class="w-full bg-cyberPurple hover:bg-opacity-80 text-white py-2.5 rounded-xl font-bold btn-touch mb-2">
+                        <i class="fas fa-history"></i> CẦU KÈO (15 phiên gần nhất)
+                    </button>
                 `;
-            } 
+            }
             else if (currentGame === 'baucua') {
-                playBtn.innerText = "🎲 XÓC BẦU CUA 3 VIÊN";
+                // Session-based Bầu Cua with professional casino UI
+                playBtn.innerText = "🎲 ĐẶT CƯỢC BẦU CUA";
+                playBtn.onclick = null; // Disable default play, use individual door betting
+
                 container.innerHTML = `
-                    <div class="grid grid-cols-3 gap-2 text-xs">
-                        <button onclick="toggleBauCuaDoor(1)" id="bc-1" class="bc-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold flex flex-col items-center">
-                            <span class="text-xl">🎃</span> <span>Bầu (x1.8)</span>
-                        </button>
-                        <button onclick="toggleBauCuaDoor(2)" id="bc-2" class="bc-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold flex flex-col items-center">
-                            <span class="text-xl">🦀</span> <span>Cua (x1.8)</span>
-                        </button>
-                        <button onclick="toggleBauCuaDoor(3)" id="bc-3" class="bc-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold flex flex-col items-center">
-                            <span class="text-xl">🦐</span> <span>Tôm (x1.8)</span>
-                        </button>
-                        <button onclick="toggleBauCuaDoor(4)" id="bc-4" class="bc-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold flex flex-col items-center">
-                            <span class="text-xl">🐟</span> <span>Cá (x1.8)</span>
-                        </button>
-                        <button onclick="toggleBauCuaDoor(5)" id="bc-5" class="bc-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold flex flex-col items-center">
-                            <span class="text-xl">🐔</span> <span>Gà (x1.8)</span>
-                        </button>
-                        <button onclick="toggleBauCuaDoor(6)" id="bc-6" class="bc-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold flex flex-col items-center">
-                            <span class="text-xl">🦌</span> <span>Hươu (x1.8)</span>
-                        </button>
+                    <!-- Session Info & Timer -->
+                    <div class="bg-gradient-to-r from-purple-900/40 to-amber-900/40 rounded-xl p-3 mb-3 border border-cyberGold/30">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-xs text-gray-400">Phiên: <span id="sessionNumber">#0</span></div>
+                                <div class="text-sm font-bold text-cyberGold">BẦU CUA TÔM CÁ</div>
+                            </div>
+                            <div id="sessionTimer">
+                                <div class="countdown-circle" style="--progress: 0%">
+                                    <div class="countdown-inner">
+                                        <div class="text-xs text-gray-400">...</div>
+                                        <div class="text-2xl font-bold font-orbitron text-cyberGold">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="diceResultText" class="text-center text-sm font-bold text-cyberGreen mt-2" style="display:none;"></div>
                     </div>
+
+                    <!-- Betting Doors -->
+                    <div class="grid grid-cols-3 gap-2 mb-3">
+                        <div class="relative">
+                            <button onclick="placeSessionBet('bc_1')" id="bc-1" class="w-full py-3 rounded-xl text-white font-bold flex flex-col items-center btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #F6465D 0%, #ff6b7f 100%);">
+                                <span class="text-2xl">🦀</span> <span>Cua</span>
+                                ${sessionBets['bc_1'] ? `<div class="text-[10px] mt-1">${sessionBets['bc_1'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_bc_1" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('bc_2')" id="bc-2" class="w-full py-3 rounded-xl text-white font-bold flex flex-col items-center btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #0ECB81 0%, #2ef1a8 100%);">
+                                <span class="text-2xl">🦞</span> <span>Tôm</span>
+                                ${sessionBets['bc_2'] ? `<div class="text-[10px] mt-1">${sessionBets['bc_2'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_bc_2" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('bc_3')" id="bc-3" class="w-full py-3 rounded-xl text-white font-bold flex flex-col items-center btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #3B82F6 0%, #60A5FA 100%);">
+                                <span class="text-2xl">🐟</span> <span>Cá</span>
+                                ${sessionBets['bc_3'] ? `<div class="text-[10px] mt-1">${sessionBets['bc_3'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_bc_3" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('bc_4')" id="bc-4" class="w-full py-3 rounded-xl text-white font-bold flex flex-col items-center btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);">
+                                <span class="text-2xl">🐓</span> <span>Gà</span>
+                                ${sessionBets['bc_4'] ? `<div class="text-[10px] mt-1">${sessionBets['bc_4'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_bc_4" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('bc_5')" id="bc-5" class="w-full py-3 rounded-xl text-white font-bold flex flex-col items-center btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #8A2BE2 0%, #a855f7 100%);">
+                                <span class="text-2xl">🎃</span> <span>Bầu</span>
+                                ${sessionBets['bc_5'] ? `<div class="text-[10px] mt-1">${sessionBets['bc_5'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_bc_5" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="placeSessionBet('bc_6')" id="bc-6" class="w-full py-3 rounded-xl text-white font-bold flex flex-col items-center btn-touch relative overflow-hidden" style="background: linear-gradient(135deg, #06B6D4 0%, #22D3EE 100%);">
+                                <span class="text-2xl">🦌</span> <span>Nai</span>
+                                ${sessionBets['bc_6'] ? `<div class="text-[10px] mt-1">${sessionBets['bc_6'].toLocaleString('vi-VN')}₫</div>` : ''}
+                            </button>
+                            <div id="fakeBetContainer_bc_6" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                    </div>
+
+                    <!-- Chip Selector -->
+                    <div class="mb-3">
+                        <div class="text-xs text-gray-400 mb-2">Chọn mức phỉnh:</div>
+                        <div class="flex gap-2 overflow-x-auto hide-scrollbar">
+                            ${CHIPS.map(chip => `
+                                <button onclick="selectChip(${chip})"
+                                    class="chip-btn px-4 py-2 rounded-lg font-bold whitespace-nowrap btn-touch ${currentBet === chip ? 'bg-cyberGold text-black' : 'bg-cyberCard text-gray-300 border border-cyberBorder'}">
+                                    ${(chip / 1000).toLocaleString('vi-VN')}K
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Cầu Kèo Button -->
+                    <button onclick="showCauKeo()" class="w-full bg-cyberPurple hover:bg-opacity-80 text-white py-2.5 rounded-xl font-bold btn-touch mb-2">
+                        <i class="fas fa-history"></i> CẦU KÈO (15 phiên gần nhất)
+                    </button>
                 `;
             }
             else if (currentGame === 'slot') {
                 playBtn.innerText = "🎰 QUAY HŨ LỘC PHÁT (JACKPOT x8)";
+                playBtn.onclick = playCurrentGame;
                 container.innerHTML = `
                     <div class="p-3 bg-cyberDark rounded-xl border border-cyberBorder text-xs text-gray-300 space-y-1">
                         <p class="text-cyberGold font-bold">✨ Thể lệ quay Slot Machine:</p>
@@ -926,12 +1182,14 @@
             }
             else if (currentGame === 'basketball') {
                 playBtn.innerText = "🏀 NÉM BÓNG VÀO RỔ (x1.7)";
+                playBtn.onclick = playCurrentGame;
                 container.innerHTML = `
                     <p class="text-xs text-gray-400 text-center py-1">Vật lý tính toán quỹ đạo bóng. Vào rổ nhận ngay tỉ lệ 1 ăn 1.7!</p>
                 `;
             }
             else if (currentGame === 'penalty') {
                 playBtn.innerText = "⚽ SÚT PHẠT PENALTY (x1.5)";
+                playBtn.onclick = playCurrentGame;
                 container.innerHTML = `
                     <div class="grid grid-cols-3 gap-2 text-xs">
                         <button onclick="selectDoor('left')" id="door-left" class="door-btn py-2 rounded-xl bg-[#151A24] border border-cyberBorder text-white font-bold">Góc Trái</button>
@@ -942,6 +1200,7 @@
             }
             else if (currentGame === 'dart') {
                 playBtn.innerText = "🎯 PHÓNG PHI TIÊU BULLSEYE";
+                playBtn.onclick = playCurrentGame;
                 container.innerHTML = `
                     <p class="text-xs text-gray-400 text-center py-1">Trúng hồng tâm nhận x1.8 • Trúng vòng trong nhận x1.5</p>
                 `;
@@ -1391,6 +1650,252 @@
             }).catch(e => console.log("Gửi bot API:", e));
         }
 
+        // --- PROFESSIONAL CASINO SESSION LOGIC FOR TÀI XỈU & BẦU CUA ---
+
+        // API Helper for session-based games
+        async function apiRequest(path, payload = null) {
+            const initData = window.Telegram?.WebApp?.initData || '';
+            if (!initData) {
+                throw new Error('Mở Mini App từ Telegram để xác thực.');
+            }
+            const options = {
+                method: payload ? 'POST' : 'GET',
+                headers: { 'X-Telegram-Init-Data': initData }
+            };
+            if (payload) {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(payload);
+            }
+            const response = await fetch(`/api/${path}`, options);
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Lỗi kết nối');
+            return result;
+        }
+
+        // Session Polling for Tài Xỉu and Bầu Cua
+        async function fetchGameStatus() {
+            if (currentGame !== 'dice' && currentGame !== 'baucua') return;
+
+            try {
+                const gameType = currentGame === 'dice' ? 'taixiu' : 'baucua';
+                const result = await apiRequest('games/status', { game: gameType });
+                currentSession = result;
+                updateSessionUI();
+            } catch (error) {
+                console.error('Failed to fetch game status:', error);
+            }
+        }
+
+        function startSessionPolling() {
+            if (sessionPollInterval) clearInterval(sessionPollInterval);
+            if (currentGame !== 'dice' && currentGame !== 'baucua') return;
+
+            fetchGameStatus(); // Initial fetch
+            sessionPollInterval = setInterval(fetchGameStatus, 1000); // Poll every second
+
+            // Start fake betting animations
+            if (fakeBetInterval) clearInterval(fakeBetInterval);
+            fakeBetInterval = setInterval(triggerFakeBets, 2000);
+        }
+
+        function stopSessionPolling() {
+            if (sessionPollInterval) {
+                clearInterval(sessionPollInterval);
+                sessionPollInterval = null;
+            }
+            if (fakeBetInterval) {
+                clearInterval(fakeBetInterval);
+                fakeBetInterval = null;
+            }
+        }
+
+        // Place bet via API
+        async function placeSessionBet(betDoor) {
+            if (!currentSession || currentSession.phase !== 'betting') {
+                showToast('⚠️ Không thể đặt cược lúc này!');
+                return;
+            }
+
+            const amount = currentBet;
+            const gameType = currentGame === 'dice' ? 'taixiu' : 'baucua';
+
+            try {
+                const result = await apiRequest('games/bet', {
+                    game: gameType,
+                    bet_door: betDoor,
+                    bet_amount: amount,
+                    request_id: `bet_${Date.now()}_${Math.random()}`
+                });
+
+                sessionBets[betDoor] = (sessionBets[betDoor] || 0) + amount;
+
+                // Update user state from server
+                if (result.state) {
+                    userState.balance = result.state.balance;
+                    userState.locked_balance = result.state.locked_balance;
+                    userState.required_wager = result.state.required_wager || 0;
+                    saveLocalData();
+                }
+
+                updateSessionUI();
+                showToast(`✅ Đã đặt ${amount.toLocaleString('vi-VN')}₫ vào ${betDoor.toUpperCase()}`);
+                triggerHaptic('light');
+                playBeep(520, 0.08);
+            } catch (error) {
+                showToast(`❌ ${error.message}`);
+                triggerHaptic('error');
+            }
+        }
+
+        // Update session UI for Tài Xỉu and Bầu Cua
+        function updateSessionUI() {
+            if (!currentSession) return;
+            if (currentGame !== 'dice' && currentGame !== 'baucua') return;
+
+            const { phase, time_left, dice1, dice2, dice3, session_number } = currentSession;
+
+            // Update countdown timer if exists
+            const timerEl = document.getElementById('sessionTimer');
+            if (timerEl) {
+                const phaseText = phase === 'betting' ? 'ĐẶT CƯỢC' : phase === 'revealing' ? 'MỞ BÁT' : 'KẾT QUẢ';
+                const maxTime = phase === 'betting' ? 45 : 15;
+                const progress = (time_left / maxTime) * 100;
+
+                timerEl.innerHTML = `
+                    <div class="countdown-circle" style="--progress: ${progress}%">
+                        <div class="countdown-inner">
+                            <div class="text-xs text-gray-400">${phaseText}</div>
+                            <div class="text-2xl font-bold font-orbitron text-cyberGold">${Math.ceil(time_left)}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Update session number display
+            const sessionNumEl = document.getElementById('sessionNumber');
+            if (sessionNumEl) {
+                sessionNumEl.innerText = `#${session_number}`;
+            }
+
+            // Show dice results during revealing/revealed phase
+            if (phase !== 'betting' && dice1 && dice2 && dice3) {
+                updateDiceDisplay(dice1, dice2, dice3);
+            }
+
+            // Clear bets when new session starts
+            if (phase === 'betting' && Object.keys(sessionBets).length > 0 && time_left > 43) {
+                sessionBets = {};
+            }
+        }
+
+        function updateDiceDisplay(d1, d2, d3) {
+            const overlay = document.getElementById('gameOverlay');
+            if (overlay && !overlay.classList.contains('hidden')) return; // Don't update if overlay shown
+
+            // For dice game (Tài Xỉu), show result text
+            if (currentGame === 'dice') {
+                const total = d1 + d2 + d3;
+                const tai = total >= 11;
+                const chan = total % 2 === 0;
+                const resultText = `${total} điểm - ${tai ? 'TÀI' : 'XỈU'} - ${chan ? 'CHẴN' : 'LẺ'}`;
+
+                const resultEl = document.getElementById('diceResultText');
+                if (resultEl) {
+                    resultEl.innerText = resultText;
+                    resultEl.style.display = 'block';
+                }
+            }
+        }
+
+        // Fake betting animations
+        function triggerFakeBets() {
+            if (!currentSession || currentSession.phase !== 'betting') return;
+
+            const doors = currentGame === 'dice'
+                ? ['tai', 'xiu', 'chan', 'le']
+                : ['bc_1', 'bc_2', 'bc_3', 'bc_4', 'bc_5', 'bc_6'];
+
+            doors.forEach(door => {
+                if (Math.random() > 0.3) return; // 30% chance per door
+
+                const btnId = currentGame === 'dice' ? `door-${door}` : door;
+                const btn = document.getElementById(btnId);
+                if (!btn) return;
+
+                const amount = [5000, 10000, 20000, 50000, 100000][Math.floor(Math.random() * 5)];
+                const fakeBet = document.createElement('div');
+                fakeBet.className = 'fake-bet';
+                fakeBet.innerText = `+${(amount / 1000)}K`;
+                fakeBet.style.position = 'absolute';
+                fakeBet.style.left = `${20 + Math.random() * 60}%`;
+                fakeBet.style.top = `${30 + Math.random() * 40}%`;
+                fakeBet.style.pointerEvents = 'none';
+
+                btn.style.position = 'relative';
+                btn.appendChild(fakeBet);
+                setTimeout(() => fakeBet.remove(), 800);
+            });
+        }
+
+        // Generate fake win notifications
+        function generateFakeWins() {
+            const names = ['Nguyễn Văn A', 'Trần Thị B', 'Lê Văn C', 'Phạm Thị D', 'Hoàng Văn E', 'Vũ Thị F', 'Đỗ Văn G', 'Bùi Thị H'];
+            const games = ['TÀI XỈU', 'BẦU CUA', 'SLOT', 'BASKETBALL'];
+
+            const wins = [];
+            for (let i = 0; i < 20; i++) {
+                const name = names[Math.floor(Math.random() * names.length)];
+                const game = games[Math.floor(Math.random() * games.length)];
+                const amount = Math.floor(Math.random() * 2000000) + 500000;
+                wins.push({ name, game, amount });
+            }
+            return wins;
+        }
+
+        function renderWinTicker() {
+            const ticker = document.getElementById('winTicker');
+            if (!ticker) return;
+
+            const wins = generateFakeWins();
+            const content = wins.map(w => `
+                <div class="win-item">
+                    <i class="fas fa-trophy"></i>
+                    <span>${w.name}</span>
+                    <span>vừa thắng</span>
+                    <span class="font-bold">${w.game}</span>
+                    <span class="text-cyberGold font-bold">${w.amount.toLocaleString('vi-VN')}₫</span>
+                </div>
+            `).join('');
+
+            ticker.innerHTML = content + content; // Duplicate for seamless scrolling
+        }
+
+        // Show history modal (Cầu Kèo)
+        function showCauKeo() {
+            if (!currentSession || !currentSession.history) {
+                showToast('Chưa có lịch sử phiên chơi.');
+                return;
+            }
+
+            const history = currentSession.history;
+            const gameType = currentGame === 'dice' ? 'taixiu' : 'baucua';
+
+            let historyText = `CẦU KÈO 15 PHIÊN GẦN NHẤT\n\n`;
+            history.forEach((session, idx) => {
+                const { session_number, dice1, dice2, dice3 } = session;
+                if (gameType === 'taixiu') {
+                    const total = dice1 + dice2 + dice3;
+                    const tai = total >= 11 ? 'T' : 'X';
+                    const chan = total % 2 === 0 ? 'C' : 'L';
+                    historyText += `#${session_number}: ${dice1}-${dice2}-${dice3} = ${total} (${tai}-${chan})\n`;
+                } else {
+                    historyText += `#${session_number}: ${dice1}-${dice2}-${dice3}\n`;
+                }
+            });
+
+            showToast(historyText);
+        }
+
         // --- 9. HỖ TRỢ GIAO DIỆN & TABS ---
         function switchTab(tabId) {
             triggerHaptic('light');
@@ -1499,6 +2004,12 @@
             renderBetControls();
             renderInvestPacks();
             updateVietQrDisplay();
+
+            // Initialize professional casino features
+            renderWinTicker();
+            if (currentGame === 'dice' || currentGame === 'baucua') {
+                startSessionPolling();
+            }
         };
     </script>
 </body>
